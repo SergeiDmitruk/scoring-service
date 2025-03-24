@@ -18,7 +18,7 @@ var (
 
 func initConfig() {
 	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:8080"), "Адрес и порт запуска сервиса")
-	flag.StringVar(&databaseURI, "d", getEnv("DATABASE_URI", "postgres://user:password@localhost:5432/dbname?sslmode=disable"), "Адрес подключения к базе данных")
+	flag.StringVar(&databaseURI, "d", getEnv("DATABASE_URI", "postgres://user:password@localhost:5432/gophermart?sslmode=disable"), "Адрес подключения к базе данных")
 	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "http://accrual-system.local"), "Адрес системы расчёта начислений")
 
 	flag.Parse()
