@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/scoring-service/internal/auth"
+	"github.com/scoring-service/pkg/logger"
 )
 
 type contextKey string
@@ -18,12 +19,14 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 		tokenString, err := getTokenFromRequest(r)
 		if err != nil {
+			logger.Log.Error(err.Error())
 			http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
 			return
 		}
 
 		userID, err := auth.ValidateJWT(tokenString)
 		if err != nil {
+			logger.Log.Error(err.Error())
 			http.Error(w, "Неудачная аутентификация", http.StatusUnauthorized)
 			return
 		}
@@ -37,6 +40,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 func GetUserIDFromContext(ctx context.Context) (int, error) {
 	userID, ok := ctx.Value(userIDKey).(int)
 	if !ok {
+		logger.Log.Error("не удалось извлечь userID из контекста")
 		return 0, fmt.Errorf("не удалось извлечь userID из контекста")
 	}
 	return userID, nil
@@ -49,15 +53,11 @@ func getTokenFromRequest(r *http.Request) (string, error) {
 
 		split := strings.Split(authHeader, "Bearer ")
 		if len(split) != 2 {
+			logger.Log.Error("неверный формат заголовка Authorization")
 			return "", fmt.Errorf("неверный формат заголовка Authorization")
 		}
 		return split[1], nil
 	}
-
-	cookie, err := r.Cookie("auth_token")
-	if err == nil {
-		return cookie.Value, nil
-	}
-
+	logger.Log.Error("не найден токен авторизации")
 	return "", fmt.Errorf("не найден токен авторизации")
 }

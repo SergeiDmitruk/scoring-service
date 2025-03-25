@@ -47,4 +47,5 @@ func main() {
 	if err := server.Init(runAddress); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
+	storage.GetPgStorage().CloseDB()
 }
