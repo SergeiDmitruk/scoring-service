@@ -6,7 +6,9 @@
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     login VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+      current_balance NUMERIC(10,2) DEFAULT 0,
+    withdrawn NUMERIC(10,2) DEFAULT 0
 );
 
 
@@ -17,14 +19,6 @@ CREATE TABLE IF NOT EXISTS orders (
     status VARCHAR(50) NOT NULL,
     accrual NUMERIC(10,2) DEFAULT 0,
     uploaded_at TIMESTAMP DEFAULT now()
-);
-
-
-CREATE TABLE IF NOT EXISTS balances (
-    id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id),
-    current_balance NUMERIC(10,2) DEFAULT 0,
-    withdrawn NUMERIC(10,2) DEFAULT 0
 );
 
 

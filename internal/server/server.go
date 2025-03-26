@@ -21,7 +21,9 @@ func Init(address string) error {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware) // Применяем мидлвейр только здесь
 		r.Get("/api/test", h.Test)
-
+		r.Get("/api/user/orders", h.GetUserOrders)
+		r.Get("/api/user/withdrawals", h.GetUserWithdrawals)
+		r.Get("/api/user/balance", h.GetUserBalance)
 	})
 
 	return http.ListenAndServe(address, r)

@@ -41,7 +41,7 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	newUser.Password = hashedPassword
 
-	err = h.storage.CreateUser(r.Context(), newUser)
+	err = h.storage.CreateUser(r.Context(), &newUser)
 	if err != nil {
 		http.Error(w, "Ошибка при создании пользователя", http.StatusInternalServerError)
 		return
@@ -89,6 +89,72 @@ func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Пользователь успешно аутентифицирован"))
+}
+func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	orders, err := h.storage.GetUserOrders(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(orders) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(orders)
+}
+func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	withdrawals, err := h.storage.GetUserWithdrawals(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(withdrawals) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(withdrawals)
+}
+func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	balance, err := h.storage.GetUserBalance(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(balance)
 }
 func (h *handler) Test(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)

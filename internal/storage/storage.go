@@ -7,6 +7,9 @@ import (
 )
 
 type StorageInterface interface {
-	CreateUser(ctx context.Context, user models.User) error
+	CreateUser(ctx context.Context, user *models.User) error
 	GetUserByLogin(ctx context.Context, login string) (*models.User, error)
+	GetUserOrders(ctx context.Context, userID int) ([]models.Order, error)
+	GetUserWithdrawals(ctx context.Context, userID int) ([]models.Withdrawal, error)
+	GetUserBalance(ctx context.Context, userID int) (models.Balance, error)
 }
