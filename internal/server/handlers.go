@@ -28,7 +28,7 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций
+	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций?
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
@@ -249,9 +249,4 @@ func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (h *handler) Test(w http.ResponseWriter, r *http.Request) { //убрать
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Иди на хуй"))
 }
