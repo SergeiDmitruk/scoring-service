@@ -18,9 +18,9 @@ var (
 )
 
 func initConfig() {
-	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:9090"), "Адрес и порт запуска сервиса")
+	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:8080"), "Адрес и порт запуска сервиса")
 	flag.StringVar(&databaseURI, "d", getEnv("DATABASE_URI", "postgres://user:password@localhost:5432/gophermart?sslmode=disable"), "Адрес подключения к базе данных")
-	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "localhost:8080"), "Адрес системы расчёта начислений")
+	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "localhost:9090"), "Адрес системы расчёта начислений")
 
 	flag.Parse()
 }
@@ -39,9 +39,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	logger.Log.Sugar().Info("Сервис запускается на адресе: %s", runAddress)
-	logger.Log.Sugar().Info("Подключение к базе данных: %s", databaseURI)
-	logger.Log.Sugar().Info("Адрес системы расчёта начислений: %s", accrualSystemAddress)
+	logger.Log.Sugar().Info("Сервис запускается на адресе:", runAddress)
+	logger.Log.Sugar().Info("Подключение к базе данных:", databaseURI)
+	logger.Log.Sugar().Info("Адрес системы расчёта начислений:", accrualSystemAddress)
 	if err := storage.InitDB(databaseURI); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
