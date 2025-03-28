@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -69,4 +70,23 @@ func GenerateJWT(user *models.User) (string, error) {
 func CheckPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+func IsValidLuhn(number string) bool {
+	var sum int
+	alt := false
+	for i := len(number) - 1; i >= 0; i-- {
+		n, err := strconv.Atoi(string(number[i]))
+		if err != nil {
+			return false
+		}
+		if alt {
+			n *= 2
+			if n > 9 {
+				n -= 9
+			}
+		}
+		sum += n
+		alt = !alt
+	}
+	return sum%10 == 0
 }

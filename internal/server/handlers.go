@@ -3,11 +3,16 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/scoring-service/internal/auth"
+	"github.com/scoring-service/internal/service"
 	"github.com/scoring-service/internal/storage"
+	"github.com/scoring-service/pkg/logger"
 	"github.com/scoring-service/pkg/models"
+	"go.uber.org/zap"
 )
 
 type handler struct {
@@ -156,7 +161,97 @@ func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(balance)
 }
-func (h *handler) Test(w http.ResponseWriter, r *http.Request) {
+func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(body) == 0 {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	orderNum := strings.TrimSpace(string(body))
+
+	if !auth.IsValidLuhn(orderNum) {
+		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
+		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
+		return
+	}
+
+	realUserID, err := h.storage.IsOrderExists(r.Context(), orderNum)
+	if err != nil {
+
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if realUserID == 0 {
+		newOrder := models.Order{
+			Number: orderNum,
+			Status: models.OrderNew,
+		}
+		err := h.storage.SaveOrder(r.Context(), userID, &newOrder)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		if userID != realUserID {
+			http.Error(w, "order already exists for another user", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+	service.GetQueueManager().JobQueue <- service.OrderJob{UserID: userID, OrderNum: orderNum}
+
+}
+func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req models.Withdraw
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request format", http.StatusBadRequest)
+		return
+	}
+	if !auth.IsValidLuhn(req.Order) {
+		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
+		return
+	}
+	if req.Sum <= 0 {
+		http.Error(w, "sum must be greater than zero", http.StatusBadRequest)
+		return
+	}
+
+	balance, err := h.storage.GetUserBalance(ctx, userID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if balance.Current < req.Sum {
+		http.Error(w, "insufficient funds", http.StatusPaymentRequired)
+		return
+	}
+
+	err = h.storage.Withdraw(ctx, userID, req.Order, req.Sum)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *handler) Test(w http.ResponseWriter, r *http.Request) { //убрать
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Иди на хуй"))
 }

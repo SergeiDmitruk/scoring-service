@@ -92,10 +92,19 @@ func (db *PgStorage) GetUserOrders(ctx context.Context, userID int) ([]models.Or
 
 	for rows.Next() {
 		var order models.Order
-		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.UploadedAt); err != nil {
+		var accrual sql.NullFloat64
+
+		if err := rows.Scan(&order.Number, &order.Status, &accrual, &order.UploadedAt); err != nil {
 			logger.Log.Error(err.Error())
 			return nil, fmt.Errorf("ошибка при чтении данных заказа: %w", err)
 		}
+
+		if accrual.Valid {
+			order.Accrual = accrual.Float64
+		} else {
+			order.Accrual = 0
+		}
+
 		orders = append(orders, order)
 	}
 
@@ -161,4 +170,80 @@ func (db *PgStorage) CloseDB() error {
 		return db.Close()
 	}
 	return nil
+}
+
+func (db *PgStorage) SaveOrder(ctx context.Context, user int, order *models.Order) error {
+	_, err := db.ExecContext(ctx, `
+        INSERT INTO orders (user_id, number, status, accrual, uploaded_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (number) DO UPDATE
+        SET status = $3, accrual = $4, uploaded_at = NOW();
+    `, user, order.Number, order.Status, sql.NullFloat64{Float64: order.Accrual, Valid: true})
+	if err != nil {
+		logger.Log.Error(err.Error())
+	}
+	return err
+}
+func (db *PgStorage) UpdateOrder(ctx context.Context, accrual *models.AccrualResponse) error {
+	_, err := db.ExecContext(ctx, `
+    WITH updated_order AS (
+        UPDATE orders
+        SET status = $2, accrual = $3
+        WHERE number = $1
+        RETURNING user_id, accrual
+    )
+    UPDATE users
+    SET current_balance = current_balance + uo.accrual
+    FROM updated_order uo
+    WHERE users.id = uo.user_id AND uo.accrual > 0;
+	`, accrual.Order, accrual.Status, sql.NullFloat64{Float64: accrual.Accrual, Valid: accrual.Accrual > 0})
+	if err != nil {
+		logger.Log.Error(err.Error())
+	}
+	return err
+}
+
+func (db *PgStorage) IsOrderExists(ctx context.Context, orderNum string) (int, error) {
+	var userID int
+	query := `
+            SELECT user_id 
+            FROM orders
+            WHERE number = $1
+        ;
+    `
+	err := db.QueryRowContext(ctx, query, orderNum).Scan(&userID)
+	if err != nil && err != sql.ErrNoRows {
+		logger.Log.Error(err.Error())
+		return 0, err
+	}
+	return userID, nil
+}
+
+func (db *PgStorage) Withdraw(ctx context.Context, userID int, order string, sum float64) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+        INSERT INTO withdrawals (user_id, order_number, sum, uploaded_at)
+        VALUES ($1, $2, $3, NOW());
+    `, userID, order, sum)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+      UPDATE users
+      SET current_balance = current_balance - $1,
+      withdrawn = withdrawn + $1
+      WHERE id = $2 AND current_balance >= $1;
+    `, sum, userID)
+	if err != nil {
+		return err
+	}
+
+	// Фиксация транзакции
+	return tx.Commit()
 }

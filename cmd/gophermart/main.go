@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/scoring-service/internal/server"
+	"github.com/scoring-service/internal/service"
 	"github.com/scoring-service/internal/storage"
 	"github.com/scoring-service/pkg/logger"
 )
@@ -17,9 +18,9 @@ var (
 )
 
 func initConfig() {
-	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:8080"), "Адрес и порт запуска сервиса")
+	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:9090"), "Адрес и порт запуска сервиса")
 	flag.StringVar(&databaseURI, "d", getEnv("DATABASE_URI", "postgres://user:password@localhost:5432/gophermart?sslmode=disable"), "Адрес подключения к базе данных")
-	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "http://accrual-system.local"), "Адрес системы расчёта начислений")
+	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "localhost:8080"), "Адрес системы расчёта начислений")
 
 	flag.Parse()
 }
@@ -44,8 +45,11 @@ func main() {
 	if err := storage.InitDB(databaseURI); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
+	service.NewAccrualService(storage.GetPgStorage(), accrualSystemAddress)
+	service.GetQueueManager()
 	if err := server.Init(runAddress); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
+
 	storage.GetPgStorage().CloseDB()
 }
