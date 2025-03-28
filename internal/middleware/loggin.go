@@ -1,17 +1,19 @@
+package middleware
+
 import (
 	"bytes"
 	"compress/gzip"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/scoring-service/pkg/logger"
 )
 
 type respData struct {
-	statusCode int
-	size       int
+	statusCode   int
+	size         int
+	responseBody string
 }
 
 type loggerResponseWriter struct {
@@ -25,11 +27,11 @@ func (r *loggerResponseWriter) WriteHeader(statusCode int) {
 }
 
 func (r *loggerResponseWriter) Write(b []byte) (int, error) {
+	r.respData.responseBody = string(b)
 	size, err := r.ResponseWriter.Write(b)
 	r.respData.size += size
 	return size, err
 }
-
 func decompressGzip(body []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	gzipReader, err := gzip.NewReader(bytes.NewReader(body))
@@ -45,7 +47,6 @@ func decompressGzip(body []byte) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
 func LoggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -60,10 +61,12 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			bodyBytes, _ = io.ReadAll(r.Body)
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
+
 		next.ServeHTTP(&lw, r)
+
 		var responseBody string
 		if lw.Header().Get("Content-Encoding") == "gzip" {
-			decompressed, err := decompressGzip(lw.respData.responseBody)
+			decompressed, err := decompressGzip([]byte(lw.respData.responseBody))
 			if err == nil {
 				responseBody = string(decompressed)
 			} else {
@@ -72,6 +75,8 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 		} else {
 			responseBody = string(lw.respData.responseBody)
 		}
+
+		// Логируем данные запроса и ответа
 		logData := map[string]interface{}{
 			"uri":           r.RequestURI,
 			"method":        r.Method,
