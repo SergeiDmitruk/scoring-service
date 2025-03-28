@@ -10,9 +10,11 @@ import (
 )
 
 type respData struct {
-	statusCode int
-	size       int
+	statusCode   int
+	size         int
+	responseBody string
 }
+
 type loggerResponseWriter struct {
 	http.ResponseWriter
 	respData *respData
@@ -22,7 +24,9 @@ func (r *loggerResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 	r.respData.statusCode = statusCode
 }
+
 func (r *loggerResponseWriter) Write(b []byte) (int, error) {
+	r.respData.responseBody = string(b)
 	size, err := r.ResponseWriter.Write(b)
 	r.respData.size += size
 	return size, err
@@ -30,14 +34,12 @@ func (r *loggerResponseWriter) Write(b []byte) (int, error) {
 
 func LoggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		start := time.Now()
 
-		logger.Log.Sugar().Infoln(
-			"uri", r.RequestURI,
-			"method", r.Method,
-			"headers", r.Header,
-		)
+		lw := loggerResponseWriter{
+			ResponseWriter: w,
+			respData:       &respData{},
+		}
 
 		var bodyBytes []byte
 		if r.Body != nil {
@@ -45,19 +47,19 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 
-		if len(bodyBytes) > 0 {
-			logger.Log.Sugar().Infoln("request body", string(bodyBytes))
-		}
-
-		lw := loggerResponseWriter{
-			ResponseWriter: w,
-			respData:       &respData{},
-		}
-
 		next.ServeHTTP(&lw, r)
-		logger.Log.Sugar().Infoln(
-			"status", lw.respData.statusCode,
-			"duration", time.Since(start),
-		)
+
+		logData := map[string]interface{}{
+			"uri":           r.RequestURI,
+			"method":        r.Method,
+			"headers":       r.Header,
+			"request_body":  string(bodyBytes),
+			"status":        lw.respData.statusCode,
+			"response_body": lw.respData.responseBody,
+			"response_size": lw.respData.size,
+			"duration":      time.Since(start),
+		}
+
+		logger.Log.Sugar().Infoln(logData)
 	})
 }
