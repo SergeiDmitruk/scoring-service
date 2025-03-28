@@ -46,15 +46,15 @@ func main() {
 		log.Fatal(err)
 	}
 	if err := validateURL("http://" + runAddress); err != nil {
-		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+		logger.Log.Sugar().Fatal("Некорректный адрес запуска сервиса: ", err)
 	}
 
 	if err := validateURL(databaseURI); err != nil {
-		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+		logger.Log.Sugar().Fatal("Некорректный адрес к базе данных: ", err)
 	}
 
 	if err := validateURL(accrualSystemAddress); err != nil {
-		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+		logger.Log.Sugar().Fatal("Некорректный адрес к сервису расчета баллов: ", err)
 	}
 	logger.Log.Sugar().Info("Сервис запускается на адресе:", runAddress)
 	logger.Log.Sugar().Info("Подключение к базе данных:", databaseURI)
