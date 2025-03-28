@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/scoring-service/internal/server"
@@ -32,13 +33,29 @@ func getEnv(key, defaultValue string) string {
 	}
 	return value
 }
-
+func validateURL(u string) error {
+	_, err := url.ParseRequestURI(u)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 func main() {
 	initConfig()
 	if err := logger.Init("info"); err != nil {
 		log.Fatal(err)
 	}
+	if err := validateURL("http://" + runAddress); err != nil {
+		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+	}
 
+	if err := validateURL(databaseURI); err != nil {
+		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+	}
+
+	if err := validateURL(accrualSystemAddress); err != nil {
+		logger.Log.Sugar().Fatal("Некорректный runAddress: ", err)
+	}
 	logger.Log.Sugar().Info("Сервис запускается на адресе:", runAddress)
 	logger.Log.Sugar().Info("Подключение к базе данных:", databaseURI)
 	logger.Log.Sugar().Info("Адрес системы расчёта начислений:", accrualSystemAddress)
