@@ -10,6 +10,10 @@ import (
 	"github.com/scoring-service/pkg/logger"
 )
 
+type contextKey string
+
+const UserIDKey contextKey = "userID"
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -26,7 +30,6 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Неудачная аутентификация", http.StatusUnauthorized)
 			return
 		}
-		logger.Log.Sugar().Info(userID) // убрать
 		ctx := context.WithValue(r.Context(), auth.UserIDKey, userID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -34,7 +37,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 }
 
 func GetUserIDFromContext(ctx context.Context) (int, error) {
-	userID, ok := ctx.Value(auth.UserIDKey).(int)
+	userID, ok := ctx.Value(UserIDKey).(int)
 	if !ok {
 		logger.Log.Error("не удалось извлечь userID из контекста")
 		return 0, fmt.Errorf("не удалось извлечь userID из контекста")
