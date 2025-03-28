@@ -38,7 +38,7 @@ func InitDB(dsn string) error {
 		return err
 	}
 
-	if err := goose.Up(db, "../../migrations"); err != nil {
+	if err := goose.Up(db, "../../../migrations"); err != nil {
 		return fmt.Errorf("ошибка применения миграций: %w", err)
 	}
 	pgStorageInstance.DB = db
@@ -244,6 +244,5 @@ func (db *PgStorage) Withdraw(ctx context.Context, userID int, order string, sum
 		return err
 	}
 
-	// Фиксация транзакции
 	return tx.Commit()
 }

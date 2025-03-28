@@ -16,7 +16,9 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-const UserIDKey = "userID"
+type contextKey string
+
+const UserIDKey contextKey = "userID"
 const secretKey string = "e1ed36f1c0092227653c46d94ea90bcd"
 
 func ValidateJWT(tokenString string) (int, error) {
