@@ -28,7 +28,7 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций
+	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций?
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
@@ -178,13 +178,21 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 
 	if !auth.IsValidLuhn(orderNum) {
 		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
+		// newOrder := models.Order{
+		// 	Number: orderNum,
+		// 	Status: models.OrderInvalid,
+		// }
+		// err := h.storage.SaveOrder(r.Context(), userID, &newOrder)
+		// if err != nil {
+		// 	http.Error(w, "internal server error", http.StatusInternalServerError)
+		// 	return
+		// }
 		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
 		return
 	}
 
 	realUserID, err := h.storage.IsOrderExists(r.Context(), orderNum)
 	if err != nil {
-
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -249,9 +257,4 @@ func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (h *handler) Test(w http.ResponseWriter, r *http.Request) { //убрать
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Иди на хуй"))
 }

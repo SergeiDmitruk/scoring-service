@@ -23,10 +23,9 @@ func Init(address string) error {
 		r.Use(middleware.GzipMiddleware)
 		r.Get("/api/user/orders", h.GetUserOrders)
 		r.Post("/api/user/orders", h.PostOrder)
-		r.Post("/api/user/withdraw", h.WithdrawBalance)
 		r.Get("/api/user/withdrawals", h.GetUserWithdrawals)
 		r.Get("/api/user/balance", h.GetUserBalance)
-		r.Get("/api/user/balance", h.GetUserBalance)
+		r.Post("/api/user/balance/withdraw", h.WithdrawBalance)
 
 	})
 

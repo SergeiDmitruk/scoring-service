@@ -28,11 +28,9 @@ func NewAccrualService(db storage.StorageInterface, apiURL string) *AccrualServi
 		client: &http.Client{},
 		apiURL: apiURL,
 	}
-	logger.Log.Sugar().Info("Сосать", apiURL) //убрать
 	return &serviceInstance
 }
 func GetAccrualService() *AccrualService {
-	logger.Log.Sugar().Info("Ебать", serviceInstance.apiURL) //убрать
 	return &serviceInstance
 }
 func (s *AccrualService) FetchAccrual(ctx context.Context, orderNumber string) error {
@@ -47,7 +45,7 @@ func (s *AccrualService) FetchAccrual(ctx context.Context, orderNumber string) e
 		default:
 		}
 
-		resp, err := s.client.Get(fmt.Sprintf("http://%s/api/orders/%s", s.apiURL, orderNumber))
+		resp, err := s.client.Get(fmt.Sprintf("%s/api/orders/%s", s.apiURL, orderNumber))
 		if err != nil {
 			logger.Log.Error(err.Error())
 
