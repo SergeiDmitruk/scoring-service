@@ -178,8 +178,12 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 
 	if !auth.IsValidLuhn(orderNum) {
 		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
-		if err := s.db.UpdateOrder(ctx, &models.AccrualResponse{Order: orderNumber, Status: models.OrderInvalid}); err != nil {
-			logger.Log.Error(err.Error())
+		newOrder := models.Order{
+			Number: orderNum,
+			Status: models.OrderInvalid,
+		}
+		err := h.storage.SaveOrder(r.Context(), userID, &newOrder)
+		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
