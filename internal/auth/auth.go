@@ -11,6 +11,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type AuthInterface interface {
+	CheckPasswordHash(password, hash string) bool
+	GenerateJWT(user *models.User) (string, error)
+	ValidateJWT(tokenString string) (int, error)
+}
+
 type Claims struct {
 	UserID int `json:"user_id"`
 	jwt.StandardClaims

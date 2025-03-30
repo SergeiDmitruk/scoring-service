@@ -58,10 +58,6 @@ func (s *AccrualService) FetchAccrual(ctx context.Context, orderNumber string) e
 
 		if resp.StatusCode == http.StatusNoContent {
 			logger.Log.Error("order not registered")
-			// if err := s.db.UpdateOrder(ctx, &models.AccrualResponse{Order: orderNumber, Status: models.OrderInvalid}); err != nil {
-			// 	logger.Log.Error(err.Error())
-			// 	return err
-			// }
 			return errors.New("order not registered")
 		}
 
