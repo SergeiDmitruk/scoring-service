@@ -79,6 +79,7 @@ func TestRegister(t *testing.T) {
 			h.Register(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 
 			responseBody := w.Body.String()
@@ -149,6 +150,7 @@ func TestLogin(t *testing.T) {
 			h.Login(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 			responseBody := w.Body.String()
 			assert.Contains(t, responseBody, tt.expectedBody)
@@ -226,6 +228,7 @@ func TestGetUserOrders(t *testing.T) {
 			h.GetUserOrders(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 			if tt.expectedBody != "" {
 				body, _ := io.ReadAll(resp.Body)
@@ -303,6 +306,7 @@ func TestGetUserWithdrawals(t *testing.T) {
 			h.GetUserWithdrawals(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
 			if tt.expectedBody != "" {
@@ -347,7 +351,7 @@ func TestGetUserBalance(t *testing.T) {
 		},
 		{
 			name:           "отсутствие авторизации",
-			userID:         0, // Нет userID в контексте
+			userID:         0,
 			mockSetup:      func(storage *mocks.StorageInterface) {},
 			expectedStatus: http.StatusUnauthorized,
 			expectedBody:   "unauthorized",
@@ -373,6 +377,7 @@ func TestGetUserBalance(t *testing.T) {
 			h.GetUserBalance(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
 			if tt.expectedBody != "" {
@@ -489,6 +494,7 @@ func TestWithdrawBalance(t *testing.T) {
 			h.WithdrawBalance(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
 			if tt.expectedBody != "" {
@@ -585,6 +591,7 @@ func TestPostOrder(t *testing.T) {
 			h.PostOrder(w, r)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
 			if tt.expectedBody != "" {
