@@ -38,7 +38,7 @@ func InitDB(dsn string) error {
 		return err
 	}
 
-	if err := goose.Up(db, "internal/migrations"); err != nil {
+	if err := goose.Up(db, "/internal/migrations"); err != nil {
 		return fmt.Errorf("ошибка применения миграций: %w", err)
 	}
 	pgStorageInstance.DB = db

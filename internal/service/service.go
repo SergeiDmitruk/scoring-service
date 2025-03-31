@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"time"
 
@@ -45,7 +47,13 @@ func (s *AccrualService) FetchAccrual(ctx context.Context, orderNumber string) e
 		default:
 		}
 
-		resp, err := s.client.Get(fmt.Sprintf("%s/api/orders/%s", s.apiURL, orderNumber))
+		u, err := url.Parse(s.apiURL)
+		if err != nil {
+			return fmt.Errorf("неверный API URL: %w", err)
+		}
+		u.Path = path.Join(u.Path, "api/orders", orderNumber)
+
+		resp, err := s.client.Get(u.String())
 		if err != nil {
 			logger.Log.Error(err.Error())
 

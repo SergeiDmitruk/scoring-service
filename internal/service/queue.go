@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+type QueueInterface interface {
+	EnqueueOrder(userID int, orderNum string)
+}
+
 type QueueManager struct {
 	service    *AccrualService
 	JobQueue   chan OrderJob
@@ -37,7 +41,9 @@ func (q *QueueManager) StartWorkers() {
 		go q.worker(i)
 	}
 }
-
+func (q *QueueManager) EnqueueOrder(userID int, orderNum string) {
+	q.JobQueue <- OrderJob{UserID: userID, OrderNum: orderNum}
+}
 func (q *QueueManager) worker(id int) {
 	for job := range q.JobQueue {
 		log.Printf("Worker %d: Processing order %s for user %d", id, job.OrderNum, job.UserID)

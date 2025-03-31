@@ -17,10 +17,11 @@ import (
 
 type handler struct {
 	storage storage.StorageInterface
+	queue   service.QueueInterface
 }
 
 func NewHandler(storage storage.StorageInterface) *handler {
-	return &handler{storage: storage}
+	return &handler{storage: storage, queue: service.GetQueueManager()}
 }
 func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 	var newUser models.User
@@ -28,7 +29,7 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций?
+	if newUser.Password == "" || newUser.Login == "" {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
@@ -69,7 +70,7 @@ func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if req.Password == "" || req.Login == "" { // написать валидатор от иньекций
+	if req.Password == "" || req.Login == "" {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
@@ -182,18 +183,18 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	realUserID, err := h.storage.IsOrderExists(r.Context(), orderNum)
+	realUserID, err := h.storage.IsOrderExists(ctx, orderNum)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	if realUserID == 0 {
 		newOrder := models.Order{
 			Number: orderNum,
 			Status: models.OrderNew,
 		}
-		err := h.storage.SaveOrder(r.Context(), userID, &newOrder)
-		if err != nil {
+		if err := h.storage.SaveOrder(ctx, userID, &newOrder); err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -205,9 +206,10 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}
-	service.GetQueueManager().JobQueue <- service.OrderJob{UserID: userID, OrderNum: orderNum}
 
+	h.queue.EnqueueOrder(userID, orderNum)
 }
+
 func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()

@@ -76,7 +76,6 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			responseBody = string(lw.respData.responseBody)
 		}
 
-		// Логируем данные запроса и ответа
 		logData := map[string]interface{}{
 			"uri":           r.RequestURI,
 			"method":        r.Method,
