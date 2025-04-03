@@ -9,19 +9,17 @@ import (
 
 	"github.com/scoring-service/internal/auth"
 	"github.com/scoring-service/internal/service"
-	"github.com/scoring-service/internal/storage"
 	"github.com/scoring-service/pkg/logger"
 	"github.com/scoring-service/pkg/models"
-	"go.uber.org/zap"
 )
 
 type handler struct {
-	storage storage.StorageInterface
-	queue   service.QueueInterface
+	//storage storage.StorageInterface
+	serv service.ServiceInterface
 }
 
-func NewHandler(storage storage.StorageInterface) *handler {
-	return &handler{storage: storage, queue: service.GetQueueManager()}
+func NewHandler(service service.ServiceInterface) *handler {
+	return &handler{serv: service}
 }
 func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 	var newUser models.User
@@ -33,23 +31,18 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
-	user, err := h.storage.GetUserByLogin(r.Context(), newUser.Login)
-	if err == nil && user != nil {
+	alreadyExist, err := h.serv.UserExist(r.Context(), newUser.Login)
+	if err != nil {
+		http.Error(w, "Ошибка при создании пользователя", http.StatusInternalServerError)
+		return
+	}
+	if alreadyExist {
 		http.Error(w, "Логин уже занят", http.StatusConflict)
 		return
 	}
 
-	hashedPassword, err := auth.HashPassword(newUser.Password)
-	if err != nil {
-		http.Error(w, "Ошибка хеширования пароля", http.StatusInternalServerError)
-		return
-	}
-
-	newUser.Password = hashedPassword
-
-	err = h.storage.CreateUser(r.Context(), &newUser)
-	if err != nil {
-		http.Error(w, "Ошибка при создании пользователя", http.StatusInternalServerError)
+	if err := h.serv.ReagisterUser(r.Context(), &newUser); err != nil {
+		http.Error(w, "Ошибка регистрации клиента", http.StatusInternalServerError)
 		return
 	}
 
@@ -74,23 +67,16 @@ func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
-	user, err := h.storage.GetUserByLogin(r.Context(), req.Login)
-	if err != nil {
+	if err := h.serv.AuthorizeUser(r.Context(), &req); err != nil {
 		http.Error(w, "Неверная пара логин/пароль", http.StatusUnauthorized)
 		return
 	}
 
-	if !auth.CheckPasswordHash(req.Password, user.Password) {
-		http.Error(w, "Неверная пара логин/пароль", http.StatusUnauthorized)
-		return
-	}
-
-	token, err := auth.GenerateJWT(user)
+	token, err := auth.GenerateJWT(&req)
 	if err != nil {
 		http.Error(w, "Ошибка при генерации токена", http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	w.WriteHeader(http.StatusOK)
@@ -104,7 +90,7 @@ func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orders, err := h.storage.GetUserOrders(ctx, userID)
+	orders, err := h.serv.GetUserOrders(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -128,7 +114,7 @@ func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	withdrawals, err := h.storage.GetUserWithdrawals(ctx, userID)
+	withdrawals, err := h.serv.GetUserWithdrawals(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -152,7 +138,7 @@ func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	balance, err := h.storage.GetUserBalance(ctx, userID)
+	balance, err := h.serv.GetUserBalance(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -177,40 +163,30 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	orderNum := strings.TrimSpace(string(body))
 
-	if !auth.IsValidLuhn(orderNum) {
-		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
+	status := h.serv.CreateOrder(r.Context(), userID, orderNum)
+
+	switch status {
+	case service.StatusOK:
+		w.WriteHeader(http.StatusAccepted)
+	case service.StatusAlreadyExist:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusConflict:
+		http.Error(w, "order already exists for another user", http.StatusConflict)
+		return
+	case service.StatusInvalid:
 		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
 		return
-	}
-
-	realUserID, err := h.storage.IsOrderExists(ctx, orderNum)
-	if err != nil {
+	case service.StatusError:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	default:
+		logger.Log.Sugar().Error("Unknown status ", status)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	if realUserID == 0 {
-		newOrder := models.Order{
-			Number: orderNum,
-			Status: models.OrderNew,
-		}
-		if err := h.storage.SaveOrder(ctx, userID, &newOrder); err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusAccepted)
-	} else {
-		if userID != realUserID {
-			http.Error(w, "order already exists for another user", http.StatusConflict)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}
-
-	h.queue.EnqueueOrder(userID, orderNum)
 }
 
-func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
+func (h *handler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -224,30 +200,30 @@ func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request format", http.StatusBadRequest)
 		return
 	}
-	if !auth.IsValidLuhn(req.Order) {
-		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
-		return
-	}
 	if req.Sum <= 0 {
 		http.Error(w, "sum must be greater than zero", http.StatusBadRequest)
 		return
 	}
 
-	balance, err := h.storage.GetUserBalance(ctx, userID)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-	if balance.Current < req.Sum {
+	status := h.serv.CreateWithdraw(ctx, userID, req)
+	switch status {
+	case service.StatusOK:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusAlreadyExist:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusConflict:
 		http.Error(w, "insufficient funds", http.StatusPaymentRequired)
 		return
-	}
-
-	err = h.storage.Withdraw(ctx, userID, req.Order, req.Sum)
-	if err != nil {
+	case service.StatusInvalid:
+		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
+		return
+	case service.StatusError:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	default:
+		logger.Log.Sugar().Error("Unknown status ", status)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 }

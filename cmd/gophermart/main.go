@@ -59,14 +59,15 @@ func main() {
 	logger.Log.Sugar().Info("Сервис запускается на адресе:", runAddress)
 	logger.Log.Sugar().Info("Подключение к базе данных:", databaseURI)
 	logger.Log.Sugar().Info("Адрес системы расчёта начислений:", accrualSystemAddress)
-	if err := storage.InitDB(databaseURI); err != nil {
+	storage, err := storage.InitDB(databaseURI)
+	if err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
-	service.NewAccrualService(storage.GetPgStorage(), accrualSystemAddress)
+	serv := service.NewAccrualService(storage, accrualSystemAddress)
 	service.GetQueueManager()
-	if err := server.Init(runAddress); err != nil {
+	if err := server.Init(runAddress, serv); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}
 
-	storage.GetPgStorage().CloseDB()
+	storage.CloseDB()
 }

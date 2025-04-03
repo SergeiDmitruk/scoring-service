@@ -5,14 +5,12 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/scoring-service/internal/middleware"
-	"github.com/scoring-service/internal/storage"
+	"github.com/scoring-service/internal/service"
 )
 
-func Init(address string) error {
-	storage := storage.GetPgStorage()
-
+func Init(address string, service service.ServiceInterface) error {
 	r := chi.NewRouter()
-	h := NewHandler(storage)
+	h := NewHandler(service)
 	r.Use(middleware.LoggerMiddleware)
 	r.Group(func(r chi.Router) {
 		r.Post("/api/user/register", h.Register)
@@ -25,7 +23,7 @@ func Init(address string) error {
 		r.Post("/api/user/orders", h.PostOrder)
 		r.Get("/api/user/withdrawals", h.GetUserWithdrawals)
 		r.Get("/api/user/balance", h.GetUserBalance)
-		r.Post("/api/user/balance/withdraw", h.WithdrawBalance)
+		r.Post("/api/user/balance/withdraw", h.Withdraw)
 
 	})
 

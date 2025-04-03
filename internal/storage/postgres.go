@@ -16,35 +16,28 @@ type PgStorage struct {
 	*sql.DB
 }
 
-var pgStorageInstance PgStorage
-
-func GetPgStorage() *PgStorage {
-	return &pgStorageInstance
-}
-
-func InitDB(dsn string) error {
+func InitDB(dsn string) (*PgStorage, error) {
 	var err error
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return fmt.Errorf("ошибка подключения к БД: %w", err)
+		return &PgStorage{}, fmt.Errorf("ошибка подключения к БД: %w", err)
 	}
 
 	if err := db.Ping(); err != nil {
-		return fmt.Errorf("ошибка пинга БД: %w", err)
+		return &PgStorage{}, fmt.Errorf("ошибка пинга БД: %w", err)
 	}
 
 	if err := goose.SetDialect("postgres"); err != nil {
-		return err
+		return &PgStorage{}, err
 	}
 
 	if err := goose.Up(db, "internal/migrations"); err != nil {
-		return fmt.Errorf("ошибка применения миграций: %w", err)
+		return &PgStorage{}, fmt.Errorf("ошибка применения миграций: %w", err)
 	}
-	pgStorageInstance.DB = db
 
 	logger.Log.Sugar().Info("Подключение к БД успешно")
-	return nil
+	return &PgStorage{DB: db}, nil
 }
 
 func (db *PgStorage) GetUserByLogin(ctx context.Context, login string) (*models.User, error) {
@@ -220,11 +213,24 @@ func (db *PgStorage) IsOrderExists(ctx context.Context, orderNum string) (int, e
 }
 
 func (db *PgStorage) Withdraw(ctx context.Context, userID int, order string, sum float64) error {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	tx, err := db.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	var currentBalance float64
+
+	err = tx.QueryRowContext(ctx, `
+        SELECT current_balance FROM users WHERE id = $1 FOR UPDATE;
+    `, userID).Scan(&currentBalance)
+	if err != nil {
+		return err
+	}
+
+	if currentBalance < sum {
+		return fmt.Errorf("недостаточно средств")
+	}
 
 	_, err = tx.ExecContext(ctx, `
         INSERT INTO withdrawals (user_id, order_number, sum, uploaded_at)
@@ -233,16 +239,47 @@ func (db *PgStorage) Withdraw(ctx context.Context, userID int, order string, sum
 	if err != nil {
 		return err
 	}
-
 	_, err = tx.ExecContext(ctx, `
-      UPDATE users
-      SET current_balance = current_balance - $1,
-      withdrawn = withdrawn + $1
-      WHERE id = $2 AND current_balance >= $1;
+        UPDATE users
+        SET current_balance = current_balance - $1,
+            withdrawn = withdrawn + $1
+        WHERE id = $2;
     `, sum, userID)
 	if err != nil {
 		return err
 	}
 
 	return tx.Commit()
+}
+
+func (db *PgStorage) GetPendingOrders(ctx context.Context) ([]string, error) {
+	var orders []string
+
+	query := `
+		SELECT order_num
+		FROM orders
+		WHERE status IN ('NEW', 'PROCESSING')
+	`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		logger.Log.Error(err.Error())
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var orderNum string
+		if err := rows.Scan(&orderNum); err != nil {
+			logger.Log.Error(err.Error())
+			return nil, err
+		}
+		orders = append(orders, orderNum)
+	}
+
+	if err := rows.Err(); err != nil {
+		logger.Log.Error(err.Error())
+		return nil, err
+	}
+
+	return orders, nil
 }
