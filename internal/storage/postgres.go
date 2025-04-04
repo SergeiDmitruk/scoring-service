@@ -32,7 +32,7 @@ func InitDB(dsn string) (*PgStorage, error) {
 		return &PgStorage{}, err
 	}
 
-	if err := goose.Up(db, "../../internal/migrations"); err != nil {
+	if err := goose.Up(db, "internal/migrations"); err != nil {
 		return &PgStorage{}, fmt.Errorf("ошибка применения миграций: %w", err)
 	}
 
