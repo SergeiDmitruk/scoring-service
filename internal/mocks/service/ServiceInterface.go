@@ -72,8 +72,8 @@ func (_c *ServiceInterface_AuthorizeUser_Call) RunAndReturn(run func(context.Con
 }
 
 // CreateOrder provides a mock function with given fields: ctx, userId, orderNum
-func (_m *ServiceInterface) CreateOrder(ctx context.Context, userId int, orderNum string) service.CreateStatus {
-	ret := _m.Called(ctx, userId, orderNum)
+func (_m *ServiceInterface) CreateOrder(ctx context.Context, userID int, orderNum string) service.CreateStatus {
+	ret := _m.Called(ctx, userID, orderNum)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateOrder")
@@ -81,7 +81,7 @@ func (_m *ServiceInterface) CreateOrder(ctx context.Context, userId int, orderNu
 
 	var r0 service.CreateStatus
 	if rf, ok := ret.Get(0).(func(context.Context, int, string) service.CreateStatus); ok {
-		r0 = rf(ctx, userId, orderNum)
+		r0 = rf(ctx, userID, orderNum)
 	} else {
 		r0 = ret.Get(0).(service.CreateStatus)
 	}

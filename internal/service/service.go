@@ -26,8 +26,8 @@ type ServiceInterface interface {
 	GetUserOrders(ctx context.Context, id int) ([]models.Order, error)
 	GetUserWithdrawals(ctx context.Context, id int) ([]models.Withdrawal, error)
 	GetUserBalance(ctx context.Context, id int) (models.Balance, error)
-	CreateOrder(ctx context.Context, userId int, orderNum string) CreateStatus
-	CreateWithdraw(ctx context.Context, userId int, withdraw models.Withdraw) CreateStatus
+	CreateOrder(ctx context.Context, userID int, orderNum string) CreateStatus
+	CreateWithdraw(ctx context.Context, userID int, withdraw models.Withdraw) CreateStatus
 }
 
 type AccrualService struct {
@@ -157,6 +157,7 @@ func (s *AccrualService) AuthorizeUser(ctx context.Context, newUser *models.User
 		logger.Log.Error("Неверная пара логин/пароль", zap.String("login", newUser.Login), zap.String("Password", newUser.Password))
 		return errors.New("неверная пара логин/пароль")
 	}
+	newUser.ID = user.ID
 	return nil
 }
 
@@ -169,7 +170,7 @@ func (s *AccrualService) GetUserWithdrawals(ctx context.Context, id int) ([]mode
 func (s *AccrualService) GetUserBalance(ctx context.Context, id int) (models.Balance, error) {
 	return s.db.GetUserBalance(ctx, id)
 }
-func (s *AccrualService) CreateOrder(ctx context.Context, userId int, orderNum string) CreateStatus {
+func (s *AccrualService) CreateOrder(ctx context.Context, userID int, orderNum string) CreateStatus {
 	if !auth.IsValidLuhn(orderNum) {
 		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
 		return StatusInvalid
@@ -183,24 +184,24 @@ func (s *AccrualService) CreateOrder(ctx context.Context, userId int, orderNum s
 			Number: orderNum,
 			Status: models.OrderNew,
 		}
-		if err := s.db.SaveOrder(ctx, userId, &newOrder); err != nil {
+		if err := s.db.SaveOrder(ctx, userID, &newOrder); err != nil {
 			return StatusError
 		}
 		return StatusOK
 	} else {
-		if userId != realUserID {
+		if userID != realUserID {
 			return StatusConflict
 		}
 		return StatusAlreadyExist
 	}
 
 }
-func (s *AccrualService) CreateWithdraw(ctx context.Context, userId int, withdraw models.Withdraw) CreateStatus {
+func (s *AccrualService) CreateWithdraw(ctx context.Context, userID int, withdraw models.Withdraw) CreateStatus {
 	if !auth.IsValidLuhn(withdraw.Order) {
 		logger.Log.Error("invalid order number format", zap.String("order", withdraw.Order))
 		return StatusInvalid
 	}
-	balance, err := s.db.GetUserBalance(ctx, userId)
+	balance, err := s.db.GetUserBalance(ctx, userID)
 	if err != nil {
 		return StatusError
 	}
@@ -208,7 +209,7 @@ func (s *AccrualService) CreateWithdraw(ctx context.Context, userId int, withdra
 		return StatusConflict
 	}
 
-	err = s.db.Withdraw(ctx, userId, withdraw.Order, withdraw.Sum)
+	err = s.db.Withdraw(ctx, userID, withdraw.Order, withdraw.Sum)
 	if err != nil {
 		return StatusError
 	}

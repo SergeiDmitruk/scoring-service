@@ -32,7 +32,7 @@ func InitDB(dsn string) (*PgStorage, error) {
 		return &PgStorage{}, err
 	}
 
-	if err := goose.Up(db, "internal/migrations"); err != nil {
+	if err := goose.Up(db, "../../internal/migrations"); err != nil {
 		return &PgStorage{}, fmt.Errorf("ошибка применения миграций: %w", err)
 	}
 
@@ -256,7 +256,7 @@ func (db *PgStorage) GetPendingOrders(ctx context.Context) ([]string, error) {
 	var orders []string
 
 	query := `
-		SELECT order_num
+		SELECT number
 		FROM orders
 		WHERE status IN ('NEW', 'PROCESSING')
 	`

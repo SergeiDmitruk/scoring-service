@@ -495,7 +495,7 @@ func TestGetPendingOrders(t *testing.T) {
 			AddRow("ORD003")
 
 		mock.ExpectQuery(regexp.QuoteMeta(`
-			SELECT order_num
+			SELECT number
 			FROM orders
 			WHERE status IN ('NEW', 'PROCESSING')
 		`)).WillReturnRows(rows)
@@ -507,7 +507,7 @@ func TestGetPendingOrders(t *testing.T) {
 
 	t.Run("QueryError", func(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta(`
-			SELECT order_num
+			SELECT number
 			FROM orders
 			WHERE status IN ('NEW', 'PROCESSING')
 		`)).WillReturnError(errors.New("query failed"))
@@ -522,7 +522,7 @@ func TestGetPendingOrders(t *testing.T) {
 			AddRow(nil)
 
 		mock.ExpectQuery(regexp.QuoteMeta(`
-			SELECT order_num
+			SELECT number
 			FROM orders
 			WHERE status IN ('NEW', 'PROCESSING')
 		`)).WillReturnRows(rows)

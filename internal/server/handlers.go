@@ -14,7 +14,6 @@ import (
 )
 
 type handler struct {
-	//storage storage.StorageInterface
 	serv service.ServiceInterface
 }
 
@@ -155,7 +154,6 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
