@@ -24,10 +24,10 @@ var (
 	once            sync.Once
 )
 
-func GetQueueManager() *QueueManager {
+func GetQueueManager(service *AccrualService) *QueueManager {
 	once.Do(func() {
 		managerInstance = QueueManager{
-			service:         GetAccrualService(),
+			service:         service,
 			pendingInterval: 10 * time.Second,
 			queue:           make(map[string]struct{}),
 			workerPool:      5,

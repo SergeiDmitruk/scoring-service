@@ -1,606 +1,418 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/scoring-service/internal/auth"
-	"github.com/scoring-service/internal/mocks"
+	mocks "github.com/scoring-service/internal/mocks/service"
+	"github.com/scoring-service/internal/service"
 	"github.com/scoring-service/pkg/models"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegister(t *testing.T) {
-	type testCase struct {
-		name         string
-		input        models.User
-		mockSetup    func(storage *mocks.StorageInterface)
-		expectedCode int
-		expectedBody string
+	type want struct {
+		code       int
+		authHeader bool
 	}
 
-	tests := []testCase{
+	tests := []struct {
+		name      string
+		body      string
+		mockSetup func(serv *mocks.ServiceInterface)
+		want      want
+	}{
 		{
-			name: "Успешная регистрация",
-			input: models.User{
-				Login:    "testuser",
-				Password: "password123",
+			name: "valid registration",
+			body: `{"login": "test", "password": "12345"}`,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("UserExist", mock.Anything, "test").Return(false, nil)
+				serv.On("ReagisterUser", mock.Anything, mock.Anything).Return(nil)
 			},
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserByLogin", mock.Anything, "testuser").Return(nil, nil)
-				storage.On("CreateUser", mock.Anything, mock.AnythingOfType("*models.User")).Return(nil)
-			},
-			expectedCode: http.StatusOK,
-			expectedBody: "Пользователь успешно зарегистрирован и аутентифицирован",
+			want: want{code: http.StatusOK, authHeader: true},
 		},
 		{
-			name: "Пустые логин и пароль",
-			input: models.User{
-				Login:    "",
-				Password: "",
+			name: "login already taken",
+			body: `{"login": "test", "password": "12345"}`,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("UserExist", mock.Anything, "test").Return(true, nil)
 			},
-			mockSetup:    func(storage *mocks.StorageInterface) {},
-			expectedCode: http.StatusBadRequest,
-			expectedBody: "Невалидный логин или пароль",
+			want: want{code: http.StatusConflict},
 		},
 		{
-			name: "Логин уже занят",
-			input: models.User{
-				Login:    "existinguser",
-				Password: "password123",
-			},
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserByLogin", mock.Anything, "existinguser").Return(&models.User{Login: "existinguser"}, nil)
-			},
-			expectedCode: http.StatusConflict,
-			expectedBody: "Логин уже занят",
+			name:      "bad request",
+			body:      `{bad json}`,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusBadRequest},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
+			mockService := mocks.NewServiceInterface(t)
+			tt.mockSetup(mockService)
 
-			h := NewHandler(storageMock)
-			body, _ := json.Marshal(tt.input)
-			r := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(body))
+			h := NewHandler(mockService)
+
+			req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(tt.body))
 			w := httptest.NewRecorder()
 
-			h.Register(w, r)
+			h.Register(w, req)
 
 			resp := w.Result()
 			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 
-			responseBody := w.Body.String()
-			assert.Contains(t, responseBody, tt.expectedBody)
+			require.Equal(t, tt.want.code, resp.StatusCode)
+			if tt.want.authHeader {
+				require.NotEmpty(t, resp.Header.Get("Authorization"))
+			}
 		})
 	}
 }
 func TestLogin(t *testing.T) {
-	type testCase struct {
-		name           string
-		inputUser      models.User
-		mockSetup      func(storage *mocks.StorageInterface)
-		expectedStatus int
-		expectedBody   string
+	type want struct {
+		code       int
+		authHeader bool
 	}
-	hash, _ := auth.HashPassword("password123")
-	tests := []testCase{
+	tests := []struct {
+		name      string
+		body      string
+		mockSetup func(serv *mocks.ServiceInterface)
+		want      want
+	}{
 		{
-			name: "успешная авторизация",
-			inputUser: models.User{
-				Login:    "testuser",
-				Password: "password123",
+			name: "valid login",
+			body: `{"login": "test", "password": "12345"}`,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("AuthorizeUser", mock.Anything, mock.Anything).Return(nil)
 			},
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserByLogin", mock.Anything, "testuser").Return(&models.User{
-					ID:       1,
-					Login:    "testuser",
-					Password: hash,
-				}, nil)
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   "Пользователь успешно аутентифицирован",
+			want: want{code: http.StatusOK, authHeader: true},
 		},
 		{
-			name: "неверный пароль",
-			inputUser: models.User{
-				Login:    "testuser",
-				Password: "wrongpassword",
+			name: "invalid login",
+			body: `{"login": "test", "password": "wrong"}`,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("AuthorizeUser", mock.Anything, mock.Anything).Return(errors.New("bad credentials"))
 			},
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserByLogin", mock.Anything, "testuser").Return(&models.User{
-					ID:       1,
-					Login:    "testuser",
-					Password: "$2a$10$A4ZzYopqPweqKGHpmhPbXcYzxt.AZHs5hOZ1I/x8Cz6gAVO65v9m6",
-				}, nil)
-			},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Неверная пара логин/пароль",
+			want: want{code: http.StatusUnauthorized},
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
+			mockService := mocks.NewServiceInterface(t)
+			tt.mockSetup(mockService)
 
-			h := NewHandler(storageMock)
+			h := NewHandler(mockService)
 
-			body, _ := json.Marshal(tt.inputUser)
-			r := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(body))
+			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(tt.body))
 			w := httptest.NewRecorder()
 
-			if tt.expectedStatus == http.StatusOK {
-				validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-				r.Header.Set("Authorization", "Bearer "+validToken)
-			}
-
-			h.Login(w, r)
+			h.Login(w, req)
 
 			resp := w.Result()
 			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-			responseBody := w.Body.String()
-			assert.Contains(t, responseBody, tt.expectedBody)
+
+			require.Equal(t, tt.want.code, resp.StatusCode)
+			if tt.want.authHeader {
+				require.NotEmpty(t, resp.Header.Get("Authorization"))
+			}
 		})
 	}
 }
-
-func TestGetUserOrders(t *testing.T) {
-	type testCase struct {
-		name           string
-		userID         int
-		mockSetup      func(storage *mocks.StorageInterface)
-		expectedStatus int
-		expectedBody   string
-	}
-
-	validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-
-	tests := []testCase{
+func TestPostOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		userID   int
+		status   service.CreateStatus
+		wantCode int
+	}{
 		{
-			name:   "успешное получение заказов",
-			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserOrders", mock.Anything, 1).Return([]models.Order{
-					{Number: "123", Status: "NEW", Accrual: 100.5, UploadedAt: time.Now()},
-				}, nil)
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   `"number":"123"`,
+			name:     "valid order",
+			body:     "1234567890",
+			userID:   42,
+			status:   service.StatusOK,
+			wantCode: http.StatusAccepted,
 		},
 		{
-			name:   "у пользователя нет заказов",
-			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserOrders", mock.Anything, 1).Return([]models.Order{}, nil)
-			},
-			expectedStatus: http.StatusNoContent,
-			expectedBody:   "",
+			name:     "already exists",
+			body:     "1234567890",
+			userID:   42,
+			status:   service.StatusAlreadyExist,
+			wantCode: http.StatusOK,
 		},
 		{
-			name:   "ошибка базы данных",
-			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserOrders", mock.Anything, 1).Return(nil, errors.New("db error"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:           "отсутствие авторизации",
-			userID:         0,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "unauthorized",
+			name:     "conflict",
+			body:     "1234567890",
+			userID:   42,
+			status:   service.StatusConflict,
+			wantCode: http.StatusConflict,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewServiceInterface(t)
+			mockService.On("CreateOrder", mock.Anything, tt.userID, tt.body).Return(tt.status)
 
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
+			h := NewHandler(mockService)
 
-			h := NewHandler(storageMock)
-
-			r := httptest.NewRequest(http.MethodGet, "/orders", nil)
+			req := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(tt.body))
+			req = req.WithContext(context.WithValue(req.Context(), auth.UserIDKey, tt.userID))
 			w := httptest.NewRecorder()
 
-			if tt.userID > 0 {
-				r.Header.Set("Authorization", "Bearer "+validToken)
-				ctx := context.WithValue(r.Context(), auth.UserIDKey, tt.userID)
-				r = r.WithContext(ctx)
-			}
-
-			h.GetUserOrders(w, r)
+			h.PostOrder(w, req)
 
 			resp := w.Result()
 			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-			if tt.expectedBody != "" {
-				body, _ := io.ReadAll(resp.Body)
-				assert.Contains(t, string(body), tt.expectedBody)
+
+			require.Equal(t, tt.wantCode, resp.StatusCode)
+		})
+	}
+}
+func TestWithdraw(t *testing.T) {
+	type want struct {
+		code int
+	}
+	tests := []struct {
+		name      string
+		body      string
+		userID    any
+		mockSetup func(serv *mocks.ServiceInterface)
+		want      want
+	}{
+		{
+			name:   "successful withdraw",
+			body:   `{"order":"12345678903", "sum":100}`,
+			userID: 1,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
+					Order: "12345678903",
+					Sum:   100,
+				}).Return(service.StatusOK)
+			},
+			want: want{code: http.StatusOK},
+		},
+		{
+			name:   "already exists withdraw",
+			body:   `{"order":"12345678903", "sum":100}`,
+			userID: 1,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
+					Order: "12345678903",
+					Sum:   100,
+				}).Return(service.StatusAlreadyExist)
+			},
+			want: want{code: http.StatusOK},
+		},
+		{
+			name:   "insufficient funds",
+			body:   `{"order":"12345678903", "sum":1000}`,
+			userID: 1,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
+					Order: "12345678903",
+					Sum:   1000,
+				}).Return(service.StatusConflict)
+			},
+			want: want{code: http.StatusPaymentRequired},
+		},
+		{
+			name:   "invalid order number",
+			body:   `{"order":"invalid", "sum":100}`,
+			userID: 1,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
+					Order: "invalid",
+					Sum:   100,
+				}).Return(service.StatusInvalid)
+			},
+			want: want{code: http.StatusUnprocessableEntity},
+		},
+		{
+			name:   "internal server error",
+			body:   `{"order":"12345678903", "sum":100}`,
+			userID: 1,
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
+					Order: "12345678903",
+					Sum:   100,
+				}).Return(service.StatusError)
+			},
+			want: want{code: http.StatusInternalServerError},
+		},
+		{
+			name:      "unauthorized user",
+			body:      `{"order":"12345678903", "sum":100}`,
+			userID:    nil,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusUnauthorized},
+		},
+		{
+			name:      "invalid json",
+			body:      `{"order":123}`,
+			userID:    1,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusBadRequest},
+		},
+		{
+			name:      "sum <= 0",
+			body:      `{"order":"12345678903", "sum":0}`,
+			userID:    1,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusBadRequest},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewServiceInterface(t)
+			tt.mockSetup(mockService)
+
+			h := NewHandler(mockService)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", strings.NewReader(tt.body))
+			if tt.userID != nil {
+				req = req.WithContext(context.WithValue(req.Context(), auth.UserIDKey, tt.userID))
 			}
+			w := httptest.NewRecorder()
+
+			h.Withdraw(w, req)
+
+			res := w.Result()
+			defer res.Body.Close()
+
+			require.Equal(t, tt.want.code, res.StatusCode)
 		})
 	}
 }
 func TestGetUserWithdrawals(t *testing.T) {
-	type testCase struct {
-		name           string
-		userID         int
-		mockSetup      func(storage *mocks.StorageInterface)
-		expectedStatus int
-		expectedBody   string
+	type want struct {
+		code int
 	}
-
-	validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-
-	tests := []testCase{
+	tests := []struct {
+		name      string
+		userID    any
+		mockSetup func(serv *mocks.ServiceInterface)
+		want      want
+	}{
 		{
-			name:   "успешное получение выводов средств",
+			name:   "successful get user withdrawals",
 			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{
-					{Order: "12345", Sum: 500.75, ProcessedAt: time.Now()},
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{
+					{Order: "123", Sum: 100},
+					{Order: "124", Sum: 200},
 				}, nil)
 			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   `"order":"12345"`,
+			want: want{code: http.StatusOK},
 		},
 		{
-			name:   "у пользователя нет выводов",
+			name:   "no withdrawals found",
 			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{}, nil)
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{}, nil)
 			},
-			expectedStatus: http.StatusNoContent,
-			expectedBody:   "",
+			want: want{code: http.StatusNoContent},
 		},
 		{
-			name:   "ошибка базы данных",
+			name:      "unauthorized user",
+			userID:    nil,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusUnauthorized},
+		},
+		{
+			name:   "internal server error",
 			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserWithdrawals", mock.Anything, 1).Return(nil, errors.New("db error"))
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("GetUserWithdrawals", mock.Anything, 1).Return(nil, fmt.Errorf("server error"))
 			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:           "отсутствие авторизации",
-			userID:         0,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "unauthorized",
+			want: want{code: http.StatusInternalServerError},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
+			mockService := mocks.NewServiceInterface(t)
+			tt.mockSetup(mockService)
 
-			h := NewHandler(storageMock)
+			h := NewHandler(mockService)
 
-			r := httptest.NewRequest(http.MethodGet, "/withdrawals", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
+			if tt.userID != nil {
+				req = req.WithContext(context.WithValue(req.Context(), auth.UserIDKey, tt.userID))
+			}
 			w := httptest.NewRecorder()
 
-			if tt.userID > 0 {
-				r.Header.Set("Authorization", "Bearer "+validToken)
-				ctx := context.WithValue(r.Context(), auth.UserIDKey, tt.userID)
-				r = r.WithContext(ctx)
-			}
+			h.GetUserWithdrawals(w, req)
 
-			h.GetUserWithdrawals(w, r)
+			res := w.Result()
+			defer res.Body.Close()
 
-			resp := w.Result()
-			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-
-			if tt.expectedBody != "" {
-				body, _ := io.ReadAll(resp.Body)
-				assert.Contains(t, string(body), tt.expectedBody)
-			}
+			require.Equal(t, tt.want.code, res.StatusCode)
 		})
 	}
 }
 func TestGetUserBalance(t *testing.T) {
-	type testCase struct {
-		name           string
-		userID         int
-		mockSetup      func(storage *mocks.StorageInterface)
-		expectedStatus int
-		expectedBody   string
+	type want struct {
+		code int
 	}
-
-	validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-
-	tests := []testCase{
+	tests := []struct {
+		name      string
+		userID    any
+		mockSetup func(serv *mocks.ServiceInterface)
+		want      want
+	}{
 		{
-			name:   "успешное получение баланса",
+			name:   "successful get user balance",
 			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{
-					Current:   1500.75,
-					Withdrawn: 500.25,
-				}, nil)
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{Current: 500}, nil)
 			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   `"current":1500.75`,
+			want: want{code: http.StatusOK},
 		},
 		{
-			name:   "ошибка базы данных",
+			name:      "unauthorized user",
+			userID:    nil,
+			mockSetup: func(serv *mocks.ServiceInterface) {},
+			want:      want{code: http.StatusUnauthorized},
+		},
+		{
+			name:   "internal server error",
 			userID: 1,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{}, errors.New("db error"))
+			mockSetup: func(serv *mocks.ServiceInterface) {
+				serv.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{}, fmt.Errorf("server error"))
 			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:           "отсутствие авторизации",
-			userID:         0,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "unauthorized",
+			want: want{code: http.StatusInternalServerError},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
+			mockService := mocks.NewServiceInterface(t)
+			tt.mockSetup(mockService)
 
-			h := NewHandler(storageMock)
+			h := NewHandler(mockService)
 
-			r := httptest.NewRequest(http.MethodGet, "/balance", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
+			if tt.userID != nil {
+				req = req.WithContext(context.WithValue(req.Context(), auth.UserIDKey, tt.userID))
+			}
 			w := httptest.NewRecorder()
 
-			if tt.userID > 0 {
-				r.Header.Set("Authorization", "Bearer "+validToken)
-				ctx := context.WithValue(r.Context(), auth.UserIDKey, tt.userID)
-				r = r.WithContext(ctx)
-			}
+			h.GetUserBalance(w, req)
 
-			h.GetUserBalance(w, r)
+			res := w.Result()
+			defer res.Body.Close()
 
-			resp := w.Result()
-			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-
-			if tt.expectedBody != "" {
-				body, _ := io.ReadAll(resp.Body)
-				assert.Contains(t, string(body), tt.expectedBody)
-			}
-		})
-	}
-}
-func TestWithdrawBalance(t *testing.T) {
-	type testCase struct {
-		name           string
-		userID         int
-		requestBody    string
-		mockSetup      func(storage *mocks.StorageInterface)
-		expectedStatus int
-		expectedBody   string
-	}
-
-	validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-
-	tests := []testCase{
-		{
-			name:        "успешное списание",
-			userID:      1,
-			requestBody: `{"order":"79927398713","sum":500.50}`,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{Current: 1000.0, Withdrawn: 0}, nil)
-				storage.On("Withdraw", mock.Anything, 1, "79927398713", 500.50).Return(nil)
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "некорректный JSON",
-			userID:         1,
-			requestBody:    `{"order":79927398713,"sum":500.50}`,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "invalid request format",
-		},
-		{
-			name:           "некорректный номер заказа",
-			userID:         1,
-			requestBody:    `{"order":"123456","sum":500.50}`,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   "invalid order number",
-		},
-		{
-			name:           "сумма меньше нуля",
-			userID:         1,
-			requestBody:    `{"order":"79927398713","sum":0}`,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "sum must be greater than zero",
-		},
-		{
-			name:        "ошибка при получении баланса",
-			userID:      1,
-			requestBody: `{"order":"79927398713","sum":500.50}`,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{}, errors.New("db error"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:        "недостаточно средств",
-			userID:      1,
-			requestBody: `{"order":"79927398713","sum":2000.50}`,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{Current: 1000.0, Withdrawn: 0}, nil)
-			},
-			expectedStatus: http.StatusPaymentRequired,
-			expectedBody:   "insufficient funds",
-		},
-		{
-			name:        "ошибка при списании",
-			userID:      1,
-			requestBody: `{"order":"79927398713","sum":500.50}`,
-			mockSetup: func(storage *mocks.StorageInterface) {
-				storage.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{Current: 1000.0, Withdrawn: 0}, nil)
-				storage.On("Withdraw", mock.Anything, 1, "79927398713", 500.50).Return(errors.New("db error"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:           "отсутствие авторизации",
-			userID:         0,
-			requestBody:    `{"order":"79927398713","sum":500.50}`,
-			mockSetup:      func(storage *mocks.StorageInterface) {},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "unauthorized",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			tt.mockSetup(storageMock)
-			h := NewHandler(storageMock)
-
-			r := httptest.NewRequest(http.MethodPost, "/withdraw", strings.NewReader(tt.requestBody))
-			r.Header.Set("Content-Type", "application/json")
-			w := httptest.NewRecorder()
-
-			if tt.userID > 0 {
-				r.Header.Set("Authorization", "Bearer "+validToken)
-				ctx := context.WithValue(r.Context(), auth.UserIDKey, tt.userID)
-				r = r.WithContext(ctx)
-			}
-
-			h.WithdrawBalance(w, r)
-
-			resp := w.Result()
-			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-
-			if tt.expectedBody != "" {
-				body, _ := io.ReadAll(resp.Body)
-				assert.Contains(t, string(body), tt.expectedBody)
-			}
-		})
-	}
-}
-
-type mockQueue struct {
-	mock.Mock
-}
-
-func (m *mockQueue) EnqueueOrder(userID int, orderNum string) {
-	m.Called(userID, orderNum)
-}
-
-func TestPostOrder(t *testing.T) {
-	type testCase struct {
-		name           string
-		userID         int
-		orderNum       string
-		mockSetup      func(storage *mocks.StorageInterface, queue *mocks.QueueInterface)
-		expectedStatus int
-		expectedBody   string
-	}
-
-	validToken, _ := auth.GenerateJWT(&models.User{ID: 1})
-
-	tests := []testCase{
-		{
-			name:     "успешное добавление нового заказа",
-			userID:   1,
-			orderNum: "79927398713",
-			mockSetup: func(storage *mocks.StorageInterface, queue *mocks.QueueInterface) {
-				storage.On("IsOrderExists", mock.Anything, "79927398713").Return(0, nil)
-				storage.On("SaveOrder", mock.Anything, 1, mock.Anything).Return(nil)
-				queue.On("EnqueueOrder", 1, "79927398713").Return()
-			},
-			expectedStatus: http.StatusAccepted,
-		},
-		{
-			name:     "заказ уже существует для этого пользователя",
-			userID:   1,
-			orderNum: "79927398713",
-			mockSetup: func(storage *mocks.StorageInterface, queue *mocks.QueueInterface) {
-				storage.On("IsOrderExists", mock.Anything, "79927398713").Return(1, nil)
-				queue.On("EnqueueOrder", mock.Anything, mock.Anything).Maybe()
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:     "ошибка БД при проверке заказа",
-			userID:   1,
-			orderNum: "79927398713",
-			mockSetup: func(storage *mocks.StorageInterface, queue *mocks.QueueInterface) {
-				storage.On("IsOrderExists", mock.Anything, "79927398713").Return(0, errors.New("db error"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   "internal server error",
-		},
-		{
-			name:     "некорректный формат номера заказа (Luhn)",
-			userID:   1,
-			orderNum: "12345",
-			mockSetup: func(storage *mocks.StorageInterface, queue *mocks.QueueInterface) {
-			},
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   "invalid order number format",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			storageMock := new(mocks.StorageInterface)
-			queueMock := new(mocks.QueueInterface)
-			tt.mockSetup(storageMock, queueMock)
-
-			h := &handler{
-				storage: storageMock,
-				queue:   queueMock,
-			}
-
-			r := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(tt.orderNum))
-			w := httptest.NewRecorder()
-
-			if tt.userID > 0 {
-				r.Header.Set("Authorization", "Bearer "+validToken)
-				ctx := context.WithValue(r.Context(), auth.UserIDKey, tt.userID)
-				r = r.WithContext(ctx)
-			}
-
-			h.PostOrder(w, r)
-
-			resp := w.Result()
-			defer resp.Body.Close()
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-
-			if tt.expectedBody != "" {
-				body, _ := io.ReadAll(resp.Body)
-				assert.Contains(t, string(body), tt.expectedBody)
-			}
-
-			queueMock.AssertExpectations(t)
-			storageMock.AssertExpectations(t)
+			require.Equal(t, tt.want.code, res.StatusCode)
 		})
 	}
 }

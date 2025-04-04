@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
+//go:generate mockery --name=ServiceInterface --output=../mocks/service --with-expecter
 type ServiceInterface interface {
 	ReagisterUser(ctx context.Context, user *models.User) error
 	AuthorizeUser(ctx context.Context, user *models.User) error
@@ -44,19 +45,15 @@ const (
 	StatusError
 )
 
-var serviceInstance AccrualService
-
 func NewAccrualService(db storage.StorageInterface, apiURL string) *AccrualService {
-	serviceInstance = AccrualService{
+	serviceInstance := AccrualService{
 		db:     db,
 		client: &http.Client{},
 		apiURL: apiURL,
 	}
 	return &serviceInstance
 }
-func GetAccrualService() *AccrualService {
-	return &serviceInstance
-}
+
 func (s *AccrualService) FetchAccrual(ctx context.Context, orderNumber string) error {
 	attempts := 0
 	maxAttempts := 5

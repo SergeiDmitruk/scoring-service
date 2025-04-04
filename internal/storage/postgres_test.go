@@ -12,6 +12,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/scoring-service/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetUserOrders(t *testing.T) {
@@ -398,7 +399,7 @@ func TestIsOrderExists(t *testing.T) {
 }
 func TestWithdraw(t *testing.T) {
 	db, mock, err := sqlmock.New()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer db.Close()
 
 	store := &PgStorage{DB: db}
@@ -409,20 +410,25 @@ func TestWithdraw(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		mock.ExpectBegin()
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT current_balance FROM users WHERE id = $1 FOR UPDATE;
+		`)).
+			WithArgs(userID).
+			WillReturnRows(sqlmock.NewRows([]string{"current_balance"}).AddRow(200.0))
 
 		mock.ExpectExec(regexp.QuoteMeta(`
-        INSERT INTO withdrawals (user_id, order_number, sum, uploaded_at)
-        VALUES ($1, $2, $3, NOW());
-        `)).
+			INSERT INTO withdrawals (user_id, order_number, sum, uploaded_at)
+			VALUES ($1, $2, $3, NOW());
+		`)).
 			WithArgs(userID, orderNum, amount).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
 		mock.ExpectExec(regexp.QuoteMeta(`
-      UPDATE users
-      SET current_balance = current_balance - $1,
-      withdrawn = withdrawn + $1
-      WHERE id = $2 AND current_balance >= $1;
-        `)).
+			UPDATE users
+			SET current_balance = current_balance - $1,
+			withdrawn = withdrawn + $1
+			WHERE id = $2;
+		`)).
 			WithArgs(amount, userID).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -435,33 +441,96 @@ func TestWithdraw(t *testing.T) {
 	t.Run("InsufficientFunds", func(t *testing.T) {
 		mock.ExpectBegin()
 
-		mock.ExpectExec(regexp.QuoteMeta(`
-        INSERT INTO withdrawals (user_id, order_number, sum, uploaded_at)
-        VALUES ($1, $2, $3, NOW());
-        `)).
-			WithArgs(userID, orderNum, amount).
-			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT current_balance FROM users WHERE id = $1 FOR UPDATE;
+		`)).
+			WithArgs(userID).
+			WillReturnRows(sqlmock.NewRows([]string{"current_balance"}).AddRow(50.0))
 
-		mock.ExpectExec(regexp.QuoteMeta(`
-      UPDATE users
-      SET current_balance = current_balance - $1,
-      withdrawn = withdrawn + $1
-      WHERE id = $2 AND current_balance >= $1;
-        `)).
-			WithArgs(amount, userID).
-			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectRollback()
 
 		err := store.Withdraw(ctx, userID, orderNum, amount)
 		assert.Error(t, err)
+		assert.Equal(t, "недостаточно средств", err.Error())
+	})
+
+	t.Run("QueryError", func(t *testing.T) {
+		mock.ExpectBegin()
+
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT current_balance FROM users WHERE id = $1 FOR UPDATE;
+		`)).
+			WithArgs(userID).
+			WillReturnError(errors.New("db error"))
+
+		mock.ExpectRollback()
+
+		err := store.Withdraw(ctx, userID, orderNum, amount)
+		assert.Error(t, err)
+		assert.Equal(t, "db error", err.Error())
 	})
 
 	t.Run("TransactionFailure", func(t *testing.T) {
-
 		mock.ExpectBegin().WillReturnError(sql.ErrTxDone)
+
 		err := store.Withdraw(ctx, userID, orderNum, amount)
 		assert.Error(t, err)
 		assert.Equal(t, sql.ErrTxDone, err)
 	})
 
-	assert.NoError(t, mock.ExpectationsWereMet())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+func TestGetPendingOrders(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	store := &PgStorage{DB: db}
+	ctx := context.Background()
+
+	t.Run("Success", func(t *testing.T) {
+		rows := sqlmock.NewRows([]string{"order_num"}).
+			AddRow("ORD001").
+			AddRow("ORD002").
+			AddRow("ORD003")
+
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT order_num
+			FROM orders
+			WHERE status IN ('NEW', 'PROCESSING')
+		`)).WillReturnRows(rows)
+
+		result, err := store.GetPendingOrders(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"ORD001", "ORD002", "ORD003"}, result)
+	})
+
+	t.Run("QueryError", func(t *testing.T) {
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT order_num
+			FROM orders
+			WHERE status IN ('NEW', 'PROCESSING')
+		`)).WillReturnError(errors.New("query failed"))
+
+		result, err := store.GetPendingOrders(ctx)
+		require.Error(t, err)
+		require.Nil(t, result)
+	})
+
+	t.Run("ScanError", func(t *testing.T) {
+		rows := sqlmock.NewRows([]string{"order_num"}).
+			AddRow(nil)
+
+		mock.ExpectQuery(regexp.QuoteMeta(`
+			SELECT order_num
+			FROM orders
+			WHERE status IN ('NEW', 'PROCESSING')
+		`)).WillReturnRows(rows)
+
+		result, err := store.GetPendingOrders(ctx)
+		require.Error(t, err)
+		require.Nil(t, result)
+	})
+
+	require.NoError(t, mock.ExpectationsWereMet())
 }

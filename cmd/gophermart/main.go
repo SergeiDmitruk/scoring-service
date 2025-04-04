@@ -64,7 +64,7 @@ func main() {
 		logger.Log.Sugar().Fatal(err)
 	}
 	serv := service.NewAccrualService(storage, accrualSystemAddress)
-	service.GetQueueManager()
+	service.GetQueueManager(serv)
 	if err := server.Init(runAddress, serv); err != nil {
 		logger.Log.Sugar().Fatal(err)
 	}

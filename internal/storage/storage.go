@@ -6,6 +6,7 @@ import (
 	"github.com/scoring-service/pkg/models"
 )
 
+//go:generate mockery --name=StorageInterface --output=../mocks/storage --with-expecter
 type StorageInterface interface {
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUserByLogin(ctx context.Context, login string) (*models.User, error)
