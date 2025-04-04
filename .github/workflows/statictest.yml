@@ -35,7 +35,8 @@ jobs:
 
       - name: Run unit tests with coverage (excluding mocks)
         run: |
-          go test -coverprofile=coverage.out -coverpkg=$(go list ./... | grep -v '/mocks') ./...
+          # Исключаем папки с моками из покрытия
+          go test -coverprofile=coverage.out $(go list ./... | grep -v '/internal/mocks') ./...
 
       - name: Print coverage summary
         run: |
