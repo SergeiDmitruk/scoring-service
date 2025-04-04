@@ -1,3 +1,12 @@
+go vet test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
 jobs:
   statictest:
     runs-on: ubuntu-latest
