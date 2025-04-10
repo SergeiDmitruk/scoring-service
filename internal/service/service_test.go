@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scoring-service/internal/auth"
-	mocks "github.com/scoring-service/internal/mocks/storage"
-	"github.com/scoring-service/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/scoring-service/internal/auth"
+	"github.com/scoring-service/pkg/models"
 )
 
 func TestFetchAccrual(t *testing.T) {
-	mockDB := mocks.NewStorageInterface(t)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{
 		client: &http.Client{Timeout: 3 * time.Second},
 		apiURL: "http://test-api",
@@ -120,7 +120,7 @@ func TestFetchAccrual(t *testing.T) {
 	}
 }
 func TestUserExist(t *testing.T) {
-	mockDB := mocks.NewStorageInterface(t)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{db: mockDB}
 
 	tests := []struct {
@@ -184,7 +184,7 @@ func TestUserExist(t *testing.T) {
 	}
 }
 func TestRegisterUser(t *testing.T) {
-	mockDB := mocks.NewStorageInterface(t)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{db: mockDB}
 
 	tests := []struct {
@@ -247,7 +247,7 @@ func TestRegisterUser(t *testing.T) {
 	}
 }
 func TestAuthorizeUser(t *testing.T) {
-	mockDB := mocks.NewStorageInterface(t)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{db: mockDB}
 
 	hashedPassword, _ := auth.HashPassword("correctpassword")
@@ -317,7 +317,7 @@ func TestAuthorizeUser(t *testing.T) {
 	}
 }
 func TestCreateOrder(t *testing.T) {
-	mockDB := new(mocks.StorageInterface)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{db: mockDB}
 
 	validOrder := "79927398713"
@@ -389,7 +389,7 @@ func TestCreateOrder(t *testing.T) {
 	}
 }
 func TestCreateWithdraw(t *testing.T) {
-	mockDB := new(mocks.StorageInterface)
+	mockDB := NewMockStorage(t)
 	service := &AccrualService{db: mockDB}
 
 	validOrder := "79927398713"

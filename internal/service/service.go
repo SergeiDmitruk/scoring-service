@@ -11,27 +11,29 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/scoring-service/internal/auth"
-	"github.com/scoring-service/internal/storage"
 	"github.com/scoring-service/pkg/logger"
 	"github.com/scoring-service/pkg/models"
-	"go.uber.org/zap"
 )
 
-//go:generate mockery --name=ServiceInterface --output=../mocks/service --with-expecter
-type ServiceInterface interface {
-	ReagisterUser(ctx context.Context, user *models.User) error
-	AuthorizeUser(ctx context.Context, user *models.User) error
-	UserExist(ctx context.Context, login string) (bool, error)
-	GetUserOrders(ctx context.Context, id int) ([]models.Order, error)
-	GetUserWithdrawals(ctx context.Context, id int) ([]models.Withdrawal, error)
-	GetUserBalance(ctx context.Context, id int) (models.Balance, error)
-	CreateOrder(ctx context.Context, userID int, orderNum string) CreateStatus
-	CreateWithdraw(ctx context.Context, userID int, withdraw models.Withdraw) CreateStatus
+//go:generate go tool mockery --name=Storage --inpackage --filename=storageinterface_test.go --with-expecter
+type Storage interface {
+	CreateUser(ctx context.Context, user *models.User) error
+	GetUserByLogin(ctx context.Context, login string) (*models.User, error)
+	GetUserOrders(ctx context.Context, userID int) ([]models.Order, error)
+	GetUserWithdrawals(ctx context.Context, userID int) ([]models.Withdrawal, error)
+	GetUserBalance(ctx context.Context, userID int) (models.Balance, error)
+	SaveOrder(ctx context.Context, user int, order *models.Order) error
+	UpdateOrder(ctx context.Context, accrual *models.AccrualResponse) error
+	IsOrderExists(ctx context.Context, orderNum string) (int, error)
+	Withdraw(ctx context.Context, userID int, order string, sum float64) error
+	GetPendingOrders(ctx context.Context) ([]string, error)
 }
 
 type AccrualService struct {
-	db     storage.StorageInterface
+	db     Storage
 	client *http.Client
 	apiURL string
 }
@@ -45,7 +47,7 @@ const (
 	StatusError
 )
 
-func NewAccrualService(db storage.StorageInterface, apiURL string) *AccrualService {
+func NewAccrualService(db Storage, apiURL string) *AccrualService {
 	serviceInstance := AccrualService{
 		db:     db,
 		client: &http.Client{},

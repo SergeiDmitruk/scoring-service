@@ -4,11 +4,11 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
+
 	"github.com/scoring-service/internal/middleware"
-	"github.com/scoring-service/internal/service"
 )
 
-func Init(address string, service service.ServiceInterface) error {
+func Init(address string, service Service) error {
 	r := chi.NewRouter()
 	h := NewHandler(service)
 	r.Use(middleware.LoggerMiddleware)

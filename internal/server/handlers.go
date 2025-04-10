@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +14,26 @@ import (
 	"github.com/scoring-service/pkg/models"
 )
 
-type handler struct {
-	serv service.ServiceInterface
+//go:generate go tool mockery --inpackage --name=Service --filename=serviceinterface_test.go --with-expecter
+type Service interface {
+	ReagisterUser(ctx context.Context, user *models.User) error
+	AuthorizeUser(ctx context.Context, user *models.User) error
+	UserExist(ctx context.Context, login string) (bool, error)
+	GetUserOrders(ctx context.Context, id int) ([]models.Order, error)
+	GetUserWithdrawals(ctx context.Context, id int) ([]models.Withdrawal, error)
+	GetUserBalance(ctx context.Context, id int) (models.Balance, error)
+	CreateOrder(ctx context.Context, userID int, orderNum string) service.CreateStatus
+	CreateWithdraw(ctx context.Context, userID int, withdraw models.Withdraw) service.CreateStatus
 }
 
-func NewHandler(service service.ServiceInterface) *handler {
-	return &handler{serv: service}
+type Handler struct {
+	serv Service
 }
-func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
+
+func NewHandler(service Service) *Handler {
+	return &Handler{serv: service}
+}
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var newUser models.User
 	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
@@ -56,7 +69,7 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Пользователь успешно зарегистрирован и аутентифицирован"))
 }
-func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req models.User
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
@@ -81,7 +94,7 @@ func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Пользователь успешно аутентифицирован"))
 }
-func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
 	if !ok {
@@ -104,7 +117,7 @@ func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(orders)
 }
-func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -128,7 +141,7 @@ func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(withdrawals)
 }
-func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -147,7 +160,7 @@ func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(balance)
 }
-func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
 	if !ok {
@@ -184,7 +197,7 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) Withdraw(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scoring-service/internal/auth"
-	mocks "github.com/scoring-service/internal/mocks/service"
-	"github.com/scoring-service/internal/service"
-	"github.com/scoring-service/pkg/models"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/scoring-service/internal/auth"
+	"github.com/scoring-service/internal/service"
+	"github.com/scoring-service/pkg/models"
 )
 
 func TestRegister(t *testing.T) {
@@ -26,13 +26,13 @@ func TestRegister(t *testing.T) {
 	tests := []struct {
 		name      string
 		body      string
-		mockSetup func(serv *mocks.ServiceInterface)
+		mockSetup func(serv *MockService)
 		want      want
 	}{
 		{
 			name: "valid registration",
 			body: `{"login": "test", "password": "12345"}`,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("UserExist", mock.Anything, "test").Return(false, nil)
 				serv.On("ReagisterUser", mock.Anything, mock.Anything).Return(nil)
 			},
@@ -41,7 +41,7 @@ func TestRegister(t *testing.T) {
 		{
 			name: "login already taken",
 			body: `{"login": "test", "password": "12345"}`,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("UserExist", mock.Anything, "test").Return(true, nil)
 			},
 			want: want{code: http.StatusConflict},
@@ -49,14 +49,14 @@ func TestRegister(t *testing.T) {
 		{
 			name:      "bad request",
 			body:      `{bad json}`,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusBadRequest},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			tt.mockSetup(mockService)
 
 			h := NewHandler(mockService)
@@ -84,13 +84,13 @@ func TestLogin(t *testing.T) {
 	tests := []struct {
 		name      string
 		body      string
-		mockSetup func(serv *mocks.ServiceInterface)
+		mockSetup func(serv *MockService)
 		want      want
 	}{
 		{
 			name: "valid login",
 			body: `{"login": "test", "password": "12345"}`,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("AuthorizeUser", mock.Anything, mock.Anything).Return(nil)
 			},
 			want: want{code: http.StatusOK, authHeader: true},
@@ -98,7 +98,7 @@ func TestLogin(t *testing.T) {
 		{
 			name: "invalid login",
 			body: `{"login": "test", "password": "wrong"}`,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("AuthorizeUser", mock.Anything, mock.Anything).Return(errors.New("bad credentials"))
 			},
 			want: want{code: http.StatusUnauthorized},
@@ -106,7 +106,7 @@ func TestLogin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			tt.mockSetup(mockService)
 
 			h := NewHandler(mockService)
@@ -159,7 +159,7 @@ func TestPostOrder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			mockService.On("CreateOrder", mock.Anything, tt.userID, tt.body).Return(tt.status)
 
 			h := NewHandler(mockService)
@@ -185,14 +185,14 @@ func TestWithdraw(t *testing.T) {
 		name      string
 		body      string
 		userID    any
-		mockSetup func(serv *mocks.ServiceInterface)
+		mockSetup func(serv *MockService)
 		want      want
 	}{
 		{
 			name:   "successful withdraw",
 			body:   `{"order":"12345678903", "sum":100}`,
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
 					Order: "12345678903",
 					Sum:   100,
@@ -204,7 +204,7 @@ func TestWithdraw(t *testing.T) {
 			name:   "already exists withdraw",
 			body:   `{"order":"12345678903", "sum":100}`,
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
 					Order: "12345678903",
 					Sum:   100,
@@ -216,7 +216,7 @@ func TestWithdraw(t *testing.T) {
 			name:   "insufficient funds",
 			body:   `{"order":"12345678903", "sum":1000}`,
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
 					Order: "12345678903",
 					Sum:   1000,
@@ -228,7 +228,7 @@ func TestWithdraw(t *testing.T) {
 			name:   "invalid order number",
 			body:   `{"order":"invalid", "sum":100}`,
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
 					Order: "invalid",
 					Sum:   100,
@@ -240,7 +240,7 @@ func TestWithdraw(t *testing.T) {
 			name:   "internal server error",
 			body:   `{"order":"12345678903", "sum":100}`,
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("CreateWithdraw", mock.Anything, 1, models.Withdraw{
 					Order: "12345678903",
 					Sum:   100,
@@ -252,28 +252,28 @@ func TestWithdraw(t *testing.T) {
 			name:      "unauthorized user",
 			body:      `{"order":"12345678903", "sum":100}`,
 			userID:    nil,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusUnauthorized},
 		},
 		{
 			name:      "invalid json",
 			body:      `{"order":123}`,
 			userID:    1,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusBadRequest},
 		},
 		{
 			name:      "sum <= 0",
 			body:      `{"order":"12345678903", "sum":0}`,
 			userID:    1,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusBadRequest},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			tt.mockSetup(mockService)
 
 			h := NewHandler(mockService)
@@ -300,13 +300,13 @@ func TestGetUserWithdrawals(t *testing.T) {
 	tests := []struct {
 		name      string
 		userID    any
-		mockSetup func(serv *mocks.ServiceInterface)
+		mockSetup func(serv *MockService)
 		want      want
 	}{
 		{
 			name:   "successful get user withdrawals",
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{
 					{Order: "123", Sum: 100},
 					{Order: "124", Sum: 200},
@@ -317,7 +317,7 @@ func TestGetUserWithdrawals(t *testing.T) {
 		{
 			name:   "no withdrawals found",
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("GetUserWithdrawals", mock.Anything, 1).Return([]models.Withdrawal{}, nil)
 			},
 			want: want{code: http.StatusNoContent},
@@ -325,13 +325,13 @@ func TestGetUserWithdrawals(t *testing.T) {
 		{
 			name:      "unauthorized user",
 			userID:    nil,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusUnauthorized},
 		},
 		{
 			name:   "internal server error",
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("GetUserWithdrawals", mock.Anything, 1).Return(nil, fmt.Errorf("server error"))
 			},
 			want: want{code: http.StatusInternalServerError},
@@ -340,7 +340,7 @@ func TestGetUserWithdrawals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			tt.mockSetup(mockService)
 
 			h := NewHandler(mockService)
@@ -367,13 +367,13 @@ func TestGetUserBalance(t *testing.T) {
 	tests := []struct {
 		name      string
 		userID    any
-		mockSetup func(serv *mocks.ServiceInterface)
+		mockSetup func(serv *MockService)
 		want      want
 	}{
 		{
 			name:   "successful get user balance",
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{Current: 500}, nil)
 			},
 			want: want{code: http.StatusOK},
@@ -381,13 +381,13 @@ func TestGetUserBalance(t *testing.T) {
 		{
 			name:      "unauthorized user",
 			userID:    nil,
-			mockSetup: func(serv *mocks.ServiceInterface) {},
+			mockSetup: func(serv *MockService) {},
 			want:      want{code: http.StatusUnauthorized},
 		},
 		{
 			name:   "internal server error",
 			userID: 1,
-			mockSetup: func(serv *mocks.ServiceInterface) {
+			mockSetup: func(serv *MockService) {
 				serv.On("GetUserBalance", mock.Anything, 1).Return(models.Balance{}, fmt.Errorf("server error"))
 			},
 			want: want{code: http.StatusInternalServerError},
@@ -396,7 +396,7 @@ func TestGetUserBalance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := mocks.NewServiceInterface(t)
+			mockService := NewMockService(t)
 			tt.mockSetup(mockService)
 
 			h := NewHandler(mockService)
