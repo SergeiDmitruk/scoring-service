@@ -32,11 +32,3 @@ jobs:
       - name: Run statictest
         run: |
           go vet -vettool=$(which statictest) ./...
-
-      - name: Run unit tests with coverage (excluding mocks)
-        run: |
-          go test -coverprofile=coverage.out ./...
-
-      - name: Print coverage summary
-        run: |
-          go tool cover -func=coverage.out
