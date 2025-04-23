@@ -16,13 +16,14 @@ var (
 	runAddress           string
 	databaseURI          string
 	accrualSystemAddress string
+	secretKey            string
 )
 
 func initConfig() {
 	flag.StringVar(&runAddress, "a", getEnv("RUN_ADDRESS", "localhost:8080"), "Адрес и порт запуска сервиса")
 	flag.StringVar(&databaseURI, "d", getEnv("DATABASE_URI", "postgres://user:password@localhost:5432/gophermart?sslmode=disable"), "Адрес подключения к базе данных")
 	flag.StringVar(&accrualSystemAddress, "r", getEnv("ACCRUAL_SYSTEM_ADDRESS", "localhost:9090"), "Адрес системы расчёта начислений")
-
+	flag.StringVar(&secretKey, "k", getEnv("SECRET_KEY", ""), "Ключ шифрования токена")
 	flag.Parse()
 }
 
@@ -55,6 +56,9 @@ func main() {
 
 	if err := validateURL(accrualSystemAddress); err != nil {
 		logger.Log.Sugar().Fatal("Некорректный адрес к сервису расчета баллов: ", err)
+	}
+	if secretKey == "" {
+		logger.Log.Sugar().Fatal("Некорректный ключ шифрования")
 	}
 	logger.Log.Sugar().Info("Сервис запускается на адресе:", runAddress)
 	logger.Log.Sugar().Info("Подключение к базе данных:", databaseURI)
