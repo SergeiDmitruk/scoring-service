@@ -19,7 +19,12 @@ type Claims struct {
 type contextKey string
 
 const UserIDKey contextKey = "userID"
-const secretKey string = "e1ed36f1c0092227653c46d94ea90bcd"
+
+var secretKey string
+
+func SetSecretKey(key string) {
+	secretKey = key
+}
 
 func ValidateJWT(tokenString string) (int, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
