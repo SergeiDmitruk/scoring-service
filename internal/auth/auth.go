@@ -16,12 +16,13 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-const UserIDKey = "userID"
+type contextKey string
+
+const UserIDKey contextKey = "userID"
 const secretKey string = "e1ed36f1c0092227653c46d94ea90bcd"
 
 func ValidateJWT(tokenString string) (int, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-
 		return []byte(secretKey), nil
 	})
 
@@ -31,7 +32,7 @@ func ValidateJWT(tokenString string) (int, error) {
 	}
 
 	claims, ok := token.Claims.(*Claims)
-	if !ok {
+	if !ok || claims.UserID == 0 {
 		logger.Log.Error("не удалось извлечь данные из токена")
 		return 0, fmt.Errorf("не удалось извлечь данные из токена")
 	}
@@ -74,6 +75,9 @@ func CheckPasswordHash(password, hash string) bool {
 func IsValidLuhn(number string) bool {
 	var sum int
 	alt := false
+	if number == "" {
+		return false
+	}
 	for i := len(number) - 1; i >= 0; i-- {
 		n, err := strconv.Atoi(string(number[i]))
 		if err != nil {

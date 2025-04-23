@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,46 +10,51 @@ import (
 
 	"github.com/scoring-service/internal/auth"
 	"github.com/scoring-service/internal/service"
-	"github.com/scoring-service/internal/storage"
 	"github.com/scoring-service/pkg/logger"
 	"github.com/scoring-service/pkg/models"
-	"go.uber.org/zap"
 )
 
-type handler struct {
-	storage storage.StorageInterface
+//go:generate go tool mockery --inpackage --name=Service --filename=serviceinterface_test.go --with-expecter
+type Service interface {
+	ReagisterUser(ctx context.Context, user *models.User) error
+	AuthorizeUser(ctx context.Context, user *models.User) error
+	UserExist(ctx context.Context, login string) (bool, error)
+	GetUserOrders(ctx context.Context, id int) ([]models.Order, error)
+	GetUserWithdrawals(ctx context.Context, id int) ([]models.Withdrawal, error)
+	GetUserBalance(ctx context.Context, id int) (models.Balance, error)
+	CreateOrder(ctx context.Context, userID int, orderNum string) service.CreateStatus
+	CreateWithdraw(ctx context.Context, userID int, withdraw models.Withdraw) service.CreateStatus
 }
 
-func NewHandler(storage storage.StorageInterface) *handler {
-	return &handler{storage: storage}
+type Handler struct {
+	serv Service
 }
-func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
+
+func NewHandler(service Service) *Handler {
+	return &Handler{serv: service}
+}
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var newUser models.User
 	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if newUser.Password == "" || newUser.Login == "" { // написать валидатор от иньекций
+	if newUser.Password == "" || newUser.Login == "" {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
-	user, err := h.storage.GetUserByLogin(r.Context(), newUser.Login)
-	if err == nil && user != nil {
+	alreadyExist, err := h.serv.UserExist(r.Context(), newUser.Login)
+	if err != nil {
+		http.Error(w, "Ошибка при создании пользователя", http.StatusInternalServerError)
+		return
+	}
+	if alreadyExist {
 		http.Error(w, "Логин уже занят", http.StatusConflict)
 		return
 	}
 
-	hashedPassword, err := auth.HashPassword(newUser.Password)
-	if err != nil {
-		http.Error(w, "Ошибка хеширования пароля", http.StatusInternalServerError)
-		return
-	}
-
-	newUser.Password = hashedPassword
-
-	err = h.storage.CreateUser(r.Context(), &newUser)
-	if err != nil {
-		http.Error(w, "Ошибка при создании пользователя", http.StatusInternalServerError)
+	if err := h.serv.ReagisterUser(r.Context(), &newUser); err != nil {
+		http.Error(w, "Ошибка регистрации клиента", http.StatusInternalServerError)
 		return
 	}
 
@@ -63,39 +69,32 @@ func (h *handler) Register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Пользователь успешно зарегистрирован и аутентифицирован"))
 }
-func (h *handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req models.User
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат запроса", http.StatusBadRequest)
 		return
 	}
-	if req.Password == "" || req.Login == "" { // написать валидатор от иньекций
+	if req.Password == "" || req.Login == "" {
 		http.Error(w, "Невалидный логин или пароль", http.StatusBadRequest)
 		return
 	}
-	user, err := h.storage.GetUserByLogin(r.Context(), req.Login)
-	if err != nil {
+	if err := h.serv.AuthorizeUser(r.Context(), &req); err != nil {
 		http.Error(w, "Неверная пара логин/пароль", http.StatusUnauthorized)
 		return
 	}
 
-	if !auth.CheckPasswordHash(req.Password, user.Password) {
-		http.Error(w, "Неверная пара логин/пароль", http.StatusUnauthorized)
-		return
-	}
-
-	token, err := auth.GenerateJWT(user)
+	token, err := auth.GenerateJWT(&req)
 	if err != nil {
 		http.Error(w, "Ошибка при генерации токена", http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Пользователь успешно аутентифицирован"))
 }
-func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
 	if !ok {
@@ -103,7 +102,7 @@ func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orders, err := h.storage.GetUserOrders(ctx, userID)
+	orders, err := h.serv.GetUserOrders(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -118,7 +117,7 @@ func (h *handler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(orders)
 }
-func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -127,7 +126,7 @@ func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	withdrawals, err := h.storage.GetUserWithdrawals(ctx, userID)
+	withdrawals, err := h.serv.GetUserWithdrawals(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -142,7 +141,7 @@ func (h *handler) GetUserWithdrawals(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(withdrawals)
 }
-func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -151,7 +150,7 @@ func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	balance, err := h.storage.GetUserBalance(ctx, userID)
+	balance, err := h.serv.GetUserBalance(ctx, userID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -161,14 +160,13 @@ func (h *handler) GetUserBalance(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(balance)
 }
-func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -176,40 +174,30 @@ func (h *handler) PostOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	orderNum := strings.TrimSpace(string(body))
 
-	if !auth.IsValidLuhn(orderNum) {
-		logger.Log.Error("invalid order number format", zap.String("order", orderNum))
+	status := h.serv.CreateOrder(r.Context(), userID, orderNum)
+
+	switch status {
+	case service.StatusOK:
+		w.WriteHeader(http.StatusAccepted)
+	case service.StatusAlreadyExist:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusConflict:
+		http.Error(w, "order already exists for another user", http.StatusConflict)
+		return
+	case service.StatusInvalid:
 		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
 		return
-	}
-
-	realUserID, err := h.storage.IsOrderExists(r.Context(), orderNum)
-	if err != nil {
-
+	case service.StatusError:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	default:
+		logger.Log.Sugar().Error("Unknown status ", status)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	if realUserID == 0 {
-		newOrder := models.Order{
-			Number: orderNum,
-			Status: models.OrderNew,
-		}
-		err := h.storage.SaveOrder(r.Context(), userID, &newOrder)
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusAccepted)
-	} else {
-		if userID != realUserID {
-			http.Error(w, "order already exists for another user", http.StatusConflict)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}
-	service.GetQueueManager().JobQueue <- service.OrderJob{UserID: userID, OrderNum: orderNum}
-
 }
-func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
+
+func (h *Handler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	userID, ok := ctx.Value(auth.UserIDKey).(int)
@@ -223,35 +211,30 @@ func (h *handler) WithdrawBalance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request format", http.StatusBadRequest)
 		return
 	}
-	if !auth.IsValidLuhn(req.Order) {
-		http.Error(w, "invalid order number", http.StatusUnprocessableEntity)
-		return
-	}
 	if req.Sum <= 0 {
 		http.Error(w, "sum must be greater than zero", http.StatusBadRequest)
 		return
 	}
 
-	balance, err := h.storage.GetUserBalance(ctx, userID)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-	if balance.Current < req.Sum {
+	status := h.serv.CreateWithdraw(ctx, userID, req)
+	switch status {
+	case service.StatusOK:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusAlreadyExist:
+		w.WriteHeader(http.StatusOK)
+	case service.StatusConflict:
 		http.Error(w, "insufficient funds", http.StatusPaymentRequired)
 		return
-	}
-
-	err = h.storage.Withdraw(ctx, userID, req.Order, req.Sum)
-	if err != nil {
+	case service.StatusInvalid:
+		http.Error(w, "invalid order number format", http.StatusUnprocessableEntity)
+		return
+	case service.StatusError:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	default:
+		logger.Log.Sugar().Error("Unknown status ", status)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-}
-
-func (h *handler) Test(w http.ResponseWriter, r *http.Request) { //убрать
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Иди на хуй"))
 }

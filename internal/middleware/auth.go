@@ -26,7 +26,6 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Неудачная аутентификация", http.StatusUnauthorized)
 			return
 		}
-		logger.Log.Sugar().Info(userID) // убрать
 		ctx := context.WithValue(r.Context(), auth.UserIDKey, userID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))

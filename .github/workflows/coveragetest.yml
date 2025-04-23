@@ -1,0 +1,24 @@
+name: go vet test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: golang:1.23
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run unit tests with coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+
+      - name: Print coverage summary
+        run: |
+          go tool cover -func=coverage.out
